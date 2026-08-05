@@ -1,0 +1,99 @@
+{
+  "courses": [
+    {
+      "id": "d2355275-7f6c-40eb-a777-92d685fc6b17",
+      "title": "رياضيات متقدمة",
+      "description": "مستوى أعلى في الجبر والهندسة مع تدريبات تطبيقية.",
+      "thumbnail_url": "https://images.unsplash.com/photo-1509228468518-180dd4864904?auto=format&fit=crop&w=1200&q=80",
+      "published": false,
+      "created_at": "2026-08-03T07:49:18.597Z"
+    },
+    {
+      "id": "8e479091-3724-426b-bfe6-cbc48eda3385",
+      "title": "رياضيات",
+      "description": "شرح بسيط لأساسيات الرياضيات مع تطبيقات عملية وتمارين قصيرة.",
+      "thumbnail_url": null,
+      "published": false,
+      "created_at": "2026-08-03T07:33:11.985Z"
+    }
+  ],
+  "lessons": [
+    {
+      "id": "7053fe72-4615-4a12-a7a9-28c7a0e3af54",
+      "course_id": "8e479091-3724-426b-bfe6-cbc48eda3385",
+      "title": "مقدمة في الرياضيات",
+      "video_url": "https://www.youtube.com/embed/ijBSKnoi4j8",
+      "pdf_url": null,
+      "order_index": 1,
+      "created_at": "2026-08-03T07:33:11.985Z"
+    },
+    {
+      "id": "7f0753bf-9495-4669-af19-f045e1d5ecd5",
+      "course_id": "8e479091-3724-426b-bfe6-cbc48eda3385",
+      "title": "الجدور ",
+      "video_url": "https://www.youtube.com/embed/P5z8wxAqWq8",
+      "pdf_url": null,
+      "order_index": 2,
+      "created_at": "2026-08-03T07:44:03.023Z"
+    },
+    {
+      "id": "2a361ecb-a8d2-4b0c-b0c9-4b9dcf5982a2",
+      "course_id": "d2355275-7f6c-40eb-a777-92d685fc6b17",
+      "title": "مدخل إلى الجبر المتقدم",
+      "video_url": null,
+      "pdf_url": null,
+      "order_index": 1,
+      "created_at": "2026-08-03T07:49:18.597Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "2dca92c5-e0b4-4ac2-9ad2-33fef4419323",
+      "email": "student.1785744212312@example.com",
+      "full_name": "طالب تجريبي",
+      "role": "student",
+      "created_at": "2026-08-03T08:03:32.884Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "email": "student-preview@mosbah.local",
+      "full_name": "طالب المعاينة",
+      "role": "student",
+      "created_at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "enrollments": [
+    {
+      "id": "c824ca8f-d393-46f3-b4e5-db2c9ecc6124",
+      "user_id": "2dca92c5-e0b4-4ac2-9ad2-33fef4419323",
+      "course_id": "8e479091-3724-426b-bfe6-cbc48eda3385",
+      "status": "suspended",
+      "enrolled_at": "2026-08-03T08:03:46.931Z"
+    },
+    {
+      "id": "12dab22b-a128-4ba7-ad6a-bc99160c4ab3",
+      "user_id": "2dca92c5-e0b4-4ac2-9ad2-33fef4419323",
+      "course_id": "d2355275-7f6c-40eb-a777-92d685fc6b17",
+      "status": "active",
+      "enrolled_at": "2026-08-03T08:03:32.884Z"
+    },
+    {
+      "id": "ad39bd28-8d1e-48eb-81ea-f1340f0c5f5a",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "course_id": "d2355275-7f6c-40eb-a777-92d685fc6b17",
+      "status": "suspended",
+      "enrolled_at": "2026-08-03T07:49:18.597Z"
+    },
+    {
+      "id": "51f30686-609f-4841-af0d-9d4a796c1533",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "course_id": "8e479091-3724-426b-bfe6-cbc48eda3385",
+      "status": "suspended",
+      "enrolled_at": "2026-08-03T07:33:11.985Z"
+    }
+  ],
+  "accountStatus": {
+    "00000000-0000-4000-8000-000000000002": true,
+    "2dca92c5-e0b4-4ac2-9ad2-33fef4419323": true
+  }
+}
