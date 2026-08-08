@@ -3,9 +3,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';
 
-import { getDevPreviewStore } from '@/lib/dev-preview-data';
-import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import type { Course, Enrollment, EnrollmentRequest, Lesson, LessonProgress, Profile, Question, Quiz, QuizAttempt } from '@/types/database';
+import type { Course, Enrollment, Lesson, LessonProgress, Profile, Question, Quiz, QuizAttempt } from '@/types/database';
 
 type CourseEnrollmentRow = Enrollment & {
   courses: Course | null;
@@ -56,7 +54,6 @@ type AdminCourseDetailData = {
 };
 
 type StudentListItem = Profile & {
-  accountActive?: boolean;
   enrollments: Array<Enrollment & { courseTitle: string }>;
 };
 
@@ -69,64 +66,10 @@ type CoursePlayerData = {
   courseProgress: number;
 };
 
-type PublicCourseListItem = Course & {
-  requestStatus: 'pending' | 'approved' | 'rejected' | 'none';
-};
-
-type PublicCourseCheckoutData = {
-  course: Course;
-  request: EnrollmentRequest | null;
-};
-
-type AdminEnrollmentRequestItem = EnrollmentRequest & {
-  studentName: string;
-  studentEmail: string;
-  courseTitle: string;
-  receiptImageUrl: string | null;
-};
-
-const RECEIPTS_BUCKET = 'payment-receipts';
-
-function isDevBypassEnabled() {
-  return process.env.DEV_ADMIN_BYPASS === 'true';
-}
-
 export async function getStudentDashboardData(supabase: SupabaseClient, userId: string, profile: Profile): Promise<StudentDashboardData> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    const activeEnrollments = store.enrollments.filter((enrollment) => enrollment.user_id === userId && enrollment.status === 'active');
-
-    const courses = activeEnrollments
-      .map((enrollment) => store.courses.find((course) => course.id === enrollment.course_id))
-      .filter((course): course is Course => Boolean(course))
-      .map((course) => {
-        const courseLessons = store.lessons
-          .filter((lesson) => lesson.course_id === course.id)
-          .sort((a, b) => a.order_index - b.order_index);
-
-        return {
-          id: course.id,
-          title: course.title,
-          description: course.description,
-          progress: 0,
-          completedLessons: 0,
-          totalLessons: courseLessons.length,
-          nextLessonTitle: courseLessons[0]?.title ?? 'لا توجد دروس بعد'
-        };
-      });
-
-    return {
-      studentName: profile.full_name || profile.email,
-      courses,
-      completedLessons: 0,
-      quizAttempts: 0,
-      activeEnrollments: activeEnrollments.length
-    };
-  }
-
   const { data: enrollmentsData } = await supabase
     .from('enrollments')
-    .select('id, user_id, course_id, status, enrolled_at, courses(id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at)')
+    .select('id, user_id, course_id, status, enrolled_at, courses(id, title, description, thumbnail_url, published, created_at)')
     .eq('user_id', userId)
     .eq('status', 'active')
     .order('enrolled_at', { ascending: false });
@@ -182,38 +125,11 @@ export async function getStudentDashboardData(supabase: SupabaseClient, userId: 
 }
 
 export async function getAdminOverviewData(supabase: SupabaseClient): Promise<AdminOverviewData> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    const recentCourses = [...store.courses]
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 4)
-      .map((course) => {
-        const courseLessons = store.lessons.filter((lesson) => lesson.course_id === course.id);
-        return {
-          ...course,
-          lessonCount: courseLessons.length
-        };
-      });
-
-    const recentStudents = store.profiles
-      .filter((profile) => profile.role === 'student')
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 5);
-
-    return {
-      totalStudents: store.profiles.filter((profile) => profile.role === 'student').length,
-      totalCourses: store.courses.length,
-      activeEnrollments: store.enrollments.filter((enrollment) => enrollment.status === 'active').length,
-      recentCourses,
-      recentStudents
-    };
-  }
-
   const [studentCountResult, courseCountResult, enrollmentCountResult, recentCoursesResult, recentStudentsResult, lessonsResult] = await Promise.all([
     supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'student'),
     supabase.from('courses').select('id', { count: 'exact', head: true }),
     supabase.from('enrollments').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').order('created_at', { ascending: false }).limit(4),
+    supabase.from('courses').select('id, title, description, thumbnail_url, published, created_at').order('created_at', { ascending: false }).limit(4),
     supabase.from('profiles').select('id, email, full_name, role, created_at').eq('role', 'student').order('created_at', { ascending: false }).limit(5),
     supabase.from('lessons').select('id, course_id, title, video_url, pdf_url, order_index, created_at')
   ]);
@@ -237,23 +153,8 @@ export async function getAdminOverviewData(supabase: SupabaseClient): Promise<Ad
 }
 
 export async function getAdminCoursesData(supabase: SupabaseClient): Promise<AdminCourseListItem[]> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    return store.courses.map((course) => {
-      const courseLessons = store.lessons
-        .filter((lesson) => lesson.course_id === course.id)
-        .sort((a, b) => a.order_index - b.order_index);
-
-      return {
-        ...course,
-        lessonCount: courseLessons.length,
-        firstLessonTitle: courseLessons[0]?.title ?? null
-      };
-    });
-  }
-
   const [coursesResult, lessonsResult] = await Promise.all([
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').order('created_at', { ascending: false }),
+    supabase.from('courses').select('id, title, description, thumbnail_url, published, created_at').order('created_at', { ascending: false }),
     supabase.from('lessons').select('id, course_id, title, video_url, pdf_url, order_index, created_at').order('order_index', { ascending: true })
   ]);
 
@@ -269,32 +170,15 @@ export async function getAdminCoursesData(supabase: SupabaseClient): Promise<Adm
   });
 }
 
-export async function getAdminStudentsData(supabase: SupabaseClient): Promise<{ students: StudentListItem[]; courses: Course[] }> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    const courses = [...store.courses];
-    const courseById = new Map(courses.map((course) => [course.id, course.title]));
-
-    const students = store.profiles
-      .filter((profile) => profile.role === 'student')
-      .map((student) => ({
-        ...student,
-        accountActive: store.accountStatus?.[student.id] ?? true,
-        enrollments: store.enrollments
-          .filter((enrollment) => enrollment.user_id === student.id)
-          .map((enrollment) => ({
-            ...enrollment,
-            courseTitle: courseById.get(enrollment.course_id) ?? 'دورة غير معروفة'
-          }))
-      }));
-
-    return { students, courses };
-  }
+export async function getAdminStudentsData(_supabase: SupabaseClient): Promise<{ students: StudentListItem[]; courses: Course[] }> {
+  // Use admin client to bypass RLS and see all profiles/enrollments
+  const { createSupabaseAdminClient } = await import('@/lib/supabase/admin');
+  const adminClient = createSupabaseAdminClient();
 
   const [studentsResult, coursesResult, enrollmentsResult] = await Promise.all([
-    supabase.from('profiles').select('id, email, full_name, role, created_at').eq('role', 'student').order('created_at', { ascending: false }),
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').order('created_at', { ascending: false }),
-    supabase.from('enrollments').select('id, user_id, course_id, status, enrolled_at').order('enrolled_at', { ascending: false })
+    adminClient.from('profiles').select('id, email, full_name, role, created_at').eq('role', 'student').order('created_at', { ascending: false }),
+    adminClient.from('courses').select('id, title, description, thumbnail_url, published, created_at').order('created_at', { ascending: false }),
+    adminClient.from('enrollments').select('id, user_id, course_id, status, enrolled_at').order('enrolled_at', { ascending: false })
   ]);
 
   const courses = (coursesResult.data ?? []) as Course[];
@@ -314,41 +198,76 @@ export async function getAdminStudentsData(supabase: SupabaseClient): Promise<{ 
   return { students, courses };
 }
 
+export type EnrollmentRequestItem = {
+  id: string;
+  status: string;
+  paymentMethod: string;
+  paymentReference: string;
+  receiptSignedUrl: string | null;
+  createdAt: string;
+  studentName: string;
+  studentEmail: string;
+  courseTitle: string;
+  courseId: string;
+  userId: string;
+};
+
+export async function getAdminEnrollmentRequests(): Promise<EnrollmentRequestItem[]> {
+  const { createSupabaseAdminClient } = await import('@/lib/supabase/admin');
+  const adminClient = createSupabaseAdminClient();
+
+  const { data } = await adminClient
+    .from('enrollment_requests')
+    .select('id, status, payment_method, payment_reference, created_at, user_id, course_id')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+
+  if (!data || data.length === 0) return [];
+
+  const userIds = [...new Set(data.map((r: { user_id: string }) => r.user_id))];
+  const courseIds = [...new Set(data.map((r: { course_id: string }) => r.course_id))];
+
+  const [profilesResult, coursesResult] = await Promise.all([
+    adminClient.from('profiles').select('id, full_name, email').in('id', userIds),
+    adminClient.from('courses').select('id, title').in('id', courseIds)
+  ]);
+
+  const profileMap = new Map((profilesResult.data ?? []).map((p: { id: string; full_name: string; email: string }) => [p.id, p]));
+  const courseMap = new Map((coursesResult.data ?? []).map((c: { id: string; title: string }) => [c.id, c]));
+
+  const items: EnrollmentRequestItem[] = await Promise.all(
+    data.map(async (row: { id: string; status: string; payment_method: string; payment_reference: string; created_at: string; user_id: string; course_id: string }) => {
+      let receiptSignedUrl: string | null = null;
+      if (row.payment_reference) {
+        const { data: signed } = await adminClient.storage
+          .from('payment-receipts')
+          .createSignedUrl(row.payment_reference, 3600);
+        receiptSignedUrl = signed?.signedUrl ?? null;
+      }
+      const profile = profileMap.get(row.user_id);
+      const course = courseMap.get(row.course_id);
+      return {
+        id: row.id,
+        status: row.status,
+        paymentMethod: row.payment_method,
+        paymentReference: row.payment_reference,
+        receiptSignedUrl,
+        createdAt: row.created_at,
+        studentName: profile?.full_name || profile?.email || 'غير معروف',
+        studentEmail: profile?.email || '',
+        courseTitle: course?.title || 'دورة غير معروفة',
+        courseId: row.course_id,
+        userId: row.user_id
+      };
+    })
+  );
+
+  return items;
+}
+
 export async function getCoursePlayerData(supabase: SupabaseClient, userId: string, courseId: string, selectedLessonId?: string): Promise<CoursePlayerData> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    const course = store.courses.find((item) => item.id === courseId) ?? null;
-    const hasEnrollment = store.enrollments.some(
-      (enrollment) => enrollment.user_id === userId && enrollment.course_id === courseId && enrollment.status === 'active'
-    );
-
-    if (!course || !hasEnrollment) {
-      notFound();
-    }
-
-    const lessons = store.lessons
-      .filter((lesson) => lesson.course_id === courseId)
-      .sort((a, b) => a.order_index - b.order_index)
-      .map((lesson) => ({
-        ...lesson,
-        completed: false,
-        quiz: null
-      }));
-
-    const selectedLesson = lessons.find((lesson) => lesson.id === selectedLessonId) ?? lessons[0] ?? null;
-
-    return {
-      course,
-      lessons,
-      selectedLesson,
-      selectedQuizQuestions: [],
-      latestQuizAttempt: null,
-      courseProgress: 0
-    };
-  }
-
   const [courseResult, enrollmentResult, lessonsResult, progressResult, quizzesResult] = await Promise.all([
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').eq('id', courseId).maybeSingle(),
+    supabase.from('courses').select('id, title, description, thumbnail_url, published, created_at').eq('id', courseId).maybeSingle(),
     supabase.from('enrollments').select('id').eq('course_id', courseId).eq('user_id', userId).eq('status', 'active').maybeSingle(),
     supabase.from('lessons').select('id, course_id, title, video_url, pdf_url, order_index, created_at').eq('course_id', courseId).order('order_index', { ascending: true }),
     supabase.from('lesson_progress').select('id, user_id, lesson_id, completed, updated_at').eq('user_id', userId),
@@ -405,46 +324,8 @@ export async function getCoursePlayerData(supabase: SupabaseClient, userId: stri
 }
 
 export async function getAdminCourseDetailData(supabase: SupabaseClient, courseId: string, selectedLessonId?: string): Promise<AdminCourseDetailData> {
-  if (isDevBypassEnabled()) {
-    const store = await getDevPreviewStore();
-    const course = store.courses.find((item) => item.id === courseId) ?? null;
-
-    if (!course) {
-      notFound();
-    }
-
-    const lessons = store.lessons
-      .filter((lesson) => lesson.course_id === courseId)
-      .sort((a, b) => a.order_index - b.order_index)
-      .map((lesson) => ({
-        ...lesson,
-        quiz: null,
-        questions: []
-      }));
-
-    const selectedLesson = lessons.find((lesson) => lesson.id === selectedLessonId) ?? lessons[0] ?? null;
-    const students = store.profiles.filter((profile) => profile.role === 'student');
-    const enrollments = store.enrollments.filter((enrollment) => enrollment.course_id === courseId);
-    const enrollmentByUserId = new Map(enrollments.map((enrollment) => [enrollment.user_id, enrollment]));
-    const enrolledStudents = students
-      .filter((student) => enrollmentByUserId.has(student.id))
-      .map((student) => ({
-        ...student,
-        enrollment: enrollmentByUserId.get(student.id) as Enrollment
-      }));
-    const availableStudents = students.filter((student) => !enrollmentByUserId.has(student.id));
-
-    return {
-      course,
-      lessons,
-      selectedLesson,
-      enrolledStudents,
-      availableStudents
-    };
-  }
-
   const [courseResult, lessonsResult, quizzesResult, questionsResult, studentsResult, enrollmentsResult] = await Promise.all([
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').eq('id', courseId).maybeSingle(),
+    supabase.from('courses').select('id, title, description, thumbnail_url, published, created_at').eq('id', courseId).maybeSingle(),
     supabase.from('lessons').select('id, course_id, title, video_url, pdf_url, order_index, created_at').eq('course_id', courseId).order('order_index', { ascending: true }),
     supabase.from('quizzes').select('id, lesson_id, title, pass_mark, created_at').order('created_at', { ascending: true }),
     supabase.from('questions').select('id, quiz_id, question_text, options, correct_option_index, created_at').order('created_at', { ascending: true }),
@@ -497,119 +378,4 @@ export async function getAdminCourseDetailData(supabase: SupabaseClient, courseI
     enrolledStudents,
     availableStudents
   };
-}
-
-export async function getPublicCoursesData(supabase: SupabaseClient, userId: string): Promise<{ studentName: string; courses: PublicCourseListItem[] }> {
-  const [profileResult, coursesResult, requestsResult] = await Promise.all([
-    supabase.from('profiles').select('id, email, full_name, role, created_at').eq('id', userId).maybeSingle(),
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').eq('published', true).order('created_at', { ascending: false }),
-    supabase.from('enrollment_requests').select('id, user_id, course_id, payment_method, payment_reference, proof_note, status, admin_note, reviewed_by, reviewed_at, created_at').eq('user_id', userId).order('created_at', { ascending: false })
-  ]);
-
-  const profile = profileResult.data as Profile | null;
-  const requests = (requestsResult.data ?? []) as EnrollmentRequest[];
-  const latestStatusByCourse = new Map<string, EnrollmentRequest['status']>();
-
-  for (const request of requests) {
-    if (!latestStatusByCourse.has(request.course_id)) {
-      latestStatusByCourse.set(request.course_id, request.status);
-    }
-  }
-
-  const courses = ((coursesResult.data ?? []) as Course[]).map((course) => ({
-    ...course,
-    requestStatus: (latestStatusByCourse.get(course.id) ?? 'none') as PublicCourseListItem['requestStatus']
-  }));
-
-  return {
-    studentName: profile?.full_name || profile?.email || 'طالب جديد',
-    courses
-  };
-}
-
-export async function getPublicCourseCheckoutData(supabase: SupabaseClient, userId: string, courseId: string): Promise<PublicCourseCheckoutData> {
-  const [courseResult, requestResult] = await Promise.all([
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').eq('id', courseId).eq('published', true).maybeSingle(),
-    supabase
-      .from('enrollment_requests')
-      .select('id, user_id, course_id, payment_method, payment_reference, proof_note, status, admin_note, reviewed_by, reviewed_at, created_at')
-      .eq('user_id', userId)
-      .eq('course_id', courseId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-  ]);
-
-  const course = courseResult.data as Course | null;
-  if (!course) {
-    notFound();
-  }
-
-  return {
-    course,
-    request: ((requestResult.data ?? []) as EnrollmentRequest[])[0] ?? null
-  };
-}
-
-export async function getAdminEnrollmentRequestsData(supabase: SupabaseClient): Promise<AdminEnrollmentRequestItem[]> {
-  const { data } = await supabase
-    .from('enrollment_requests')
-    .select('id, user_id, course_id, payment_method, payment_reference, proof_note, status, admin_note, reviewed_by, reviewed_at, created_at')
-    .order('created_at', { ascending: false });
-
-  const requests = (data ?? []) as EnrollmentRequest[];
-  if (requests.length === 0) {
-    return [];
-  }
-
-  const userIds = [...new Set(requests.map((item) => item.user_id))];
-  const courseIds = [...new Set(requests.map((item) => item.course_id))];
-
-  const [profilesResult, coursesResult] = await Promise.all([
-    supabase.from('profiles').select('id, email, full_name, role, created_at').in('id', userIds),
-    supabase.from('courses').select('id, title, description, thumbnail_url, price_dzd, payment_notes, published, created_at').in('id', courseIds)
-  ]);
-
-  const profileById = new Map(((profilesResult.data ?? []) as Profile[]).map((profile) => [profile.id, profile]));
-  const courseById = new Map(((coursesResult.data ?? []) as Course[]).map((course) => [course.id, course]));
-  let adminClient: ReturnType<typeof createSupabaseAdminClient> | null = null;
-  try {
-    adminClient = createSupabaseAdminClient();
-  } catch {
-    adminClient = null;
-  }
-
-  const receiptUrlMap = new Map<string, string | null>();
-  await Promise.all(
-    requests.map(async (request) => {
-      if (request.payment_reference.startsWith('http')) {
-        receiptUrlMap.set(request.id, request.payment_reference);
-        return;
-      }
-
-      if (!request.payment_reference.includes('/')) {
-        receiptUrlMap.set(request.id, null);
-        return;
-      }
-
-      if (!adminClient) {
-        receiptUrlMap.set(request.id, null);
-        return;
-      }
-
-      const signed = await adminClient.storage.from(RECEIPTS_BUCKET).createSignedUrl(request.payment_reference, 60 * 60);
-      receiptUrlMap.set(request.id, signed.data?.signedUrl ?? null);
-    })
-  );
-
-  return requests.map((request) => {
-    const profile = profileById.get(request.user_id);
-    const course = courseById.get(request.course_id);
-    return {
-      ...request,
-      studentName: profile?.full_name || profile?.email || 'طالب',
-      studentEmail: profile?.email || '-',
-      courseTitle: course?.title || 'دورة غير متوفرة',
-      receiptImageUrl: receiptUrlMap.get(request.id) ?? null
-    };
-  });
 }

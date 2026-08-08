@@ -4,17 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { requireRole } from '@/lib/auth';
-import {
-  createDevCourse,
-  createDevLesson,
-  createDevStudent,
-  removeDevEnrollmentById,
-  setDevEnrollmentStatusById,
-  setDevStudentAccountStatus,
-  setDevStudentCourseStatus
-} from '@/lib/dev-preview-data';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { toEmbeddableVideoUrl } from '@/lib/video';
 
 export type AdminFormState = {
   error?: string;
@@ -24,10 +14,9 @@ export type AdminFormState = {
 const createCourseSchema = z.object({
   title: z.string().min(3, 'عنوان الدورة قصير جدًا'),
   description: z.string().min(10, 'أدخل وصفًا أوضح للدورة'),
-  priceDzd: z.coerce.number().min(0, 'سعر الدورة غير صالح'),
-  paymentNotes: z.string().max(1000, 'تعليمات الدفع طويلة جدًا'),
-  thumbnailUrl: z.string().url('رابط الصورة المصغرة غير صالح').or(z.literal('')),
-  thumbnailDataUrl: z.string().max(4_000_000, 'الصورة المصغرة كبيرة جدًا').or(z.literal('')),
+  lessonTitle: z.string().min(3, 'أدخل عنوان الدرس الأول'),
+  videoUrl: z.string().url('رابط الفيديو غير صالح').or(z.literal('')),
+  pdfUrl: z.string().url('رابط ملف PDF غير صالح').or(z.literal('')),
   published: z.boolean()
 });
 
@@ -35,18 +24,7 @@ const createStudentSchema = z.object({
   fullName: z.string().min(3, 'اسم الطالب مطلوب'),
   email: z.string().email('البريد الإلكتروني غير صالح'),
   password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
-  courseIds: z.array(z.string().uuid('اختر دورة صالحة')).default([])
-});
-
-const toggleStudentAccountSchema = z.object({
-  studentId: z.string().uuid('معرّف الطالب غير صالح'),
-  nextStatus: z.enum(['active', 'suspended'])
-});
-
-const toggleStudentCourseSchema = z.object({
-  studentId: z.string().uuid('معرّف الطالب غير صالح'),
-  courseId: z.string().uuid('معرّف الدورة غير صالح'),
-  nextStatus: z.enum(['active', 'suspended'])
+  courseId: z.string().uuid('اختر دورة صالحة').or(z.literal(''))
 });
 
 const addLessonSchema = z.object({
@@ -103,21 +81,13 @@ const assignStudentToCourseSchema = z.object({
   studentId: z.string().uuid('اختر طالبًا صالحًا')
 });
 
-const reviewEnrollmentRequestSchema = z.object({
-  requestId: z.string().uuid('معرّف الطلب غير صالح'),
-  studentId: z.string().uuid('معرّف الطالب غير صالح'),
-  courseId: z.string().uuid('معرّف الدورة غير صالح'),
-  decision: z.enum(['approve', 'reject'])
-});
-
 export async function createCourseAction(_: AdminFormState, formData: FormData): Promise<AdminFormState> {
   const parsed = createCourseSchema.safeParse({
     title: formData.get('title'),
     description: formData.get('description'),
-    priceDzd: formData.get('priceDzd'),
-    paymentNotes: formData.get('paymentNotes'),
-    thumbnailUrl: formData.get('thumbnailUrl'),
-    thumbnailDataUrl: formData.get('thumbnailDataUrl'),
+    lessonTitle: formData.get('lessonTitle'),
+    videoUrl: formData.get('videoUrl'),
+    pdfUrl: formData.get('pdfUrl'),
     published: formData.get('published') === 'on'
   });
 
@@ -125,97 +95,51 @@ export async function createCourseAction(_: AdminFormState, formData: FormData):
     return { error: parsed.error.issues[0]?.message ?? 'تعذر حفظ الدورة.' };
   }
 
-  const thumbnailUrl = parsed.data.thumbnailDataUrl || parsed.data.thumbnailUrl || null;
+  const { supabase } = await requireRole('admin');
 
-  let supabase;
-  try {
-    ({ supabase } = await requireRole('admin'));
-  } catch (error) {
-    if (process.env.DEV_ADMIN_BYPASS === 'true') {
-      supabase = await (await import('@/lib/supabase/server')).createSupabaseServerClient();
-    } else {
-      if (error instanceof Error && error.message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
-        return { error: 'تعذر إنشاء الدورة لأن مفتاح خدمة Supabase غير مُعدّ في البيئة.' };
-      }
-
-      return { error: 'تعذر التحقق من صلاحية المدير قبل إنشاء الدورة.' };
-    }
-  }
-
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    const { course } = await createDevCourse({
+  const { data: course, error: courseError } = await supabase
+    .from('courses')
+    .insert({
       title: parsed.data.title,
       description: parsed.data.description,
-      thumbnailUrl,
-      paymentNotes: parsed.data.paymentNotes,
-      priceDzd: parsed.data.priceDzd,
       published: parsed.data.published
-    });
+    })
+    .select('id')
+    .single<{ id: string }>();
 
-    revalidatePath('/admin');
-    revalidatePath('/admin/courses');
-    revalidatePath('/dashboard');
-    revalidatePath(`/courses/${course.id}`);
-
-    return { success: 'تم إنشاء الدورة بنجاح (وضع معاينة محلي).' };
+  if (courseError || !course) {
+    return { error: 'فشل إنشاء الدورة في قاعدة البيانات.' };
   }
 
-  const courseId = crypto.randomUUID();
-
-  const { error: courseError } = await supabase.from('courses').insert({
-    id: courseId,
-    title: parsed.data.title,
-    description: parsed.data.description,
-    thumbnail_url: thumbnailUrl,
-    price_dzd: parsed.data.priceDzd,
-    payment_notes: parsed.data.paymentNotes,
-    published: parsed.data.published
+  const { error: lessonError } = await supabase.from('lessons').insert({
+    course_id: course.id,
+    title: parsed.data.lessonTitle,
+    video_url: parsed.data.videoUrl || null,
+    pdf_url: parsed.data.pdfUrl || null,
+    order_index: 1
   });
 
-  if (courseError) {
-    const details = courseError?.message ? `: ${courseError.message}` : '';
-    return { error: `فشل إنشاء الدورة في قاعدة البيانات${details}` };
+  if (lessonError) {
+    return { error: 'تم إنشاء الدورة لكن تعذر إنشاء الدرس الأول.' };
   }
 
   revalidatePath('/admin');
   revalidatePath('/admin/courses');
   revalidatePath('/dashboard');
 
-  return { success: 'تم إنشاء الدورة بنجاح.' };
+  return { success: 'تم إنشاء الدورة والدرس الأول بنجاح.' };
 }
 
 export async function createStudentAction(_: AdminFormState, formData: FormData): Promise<AdminFormState> {
-  const selectedCourseIds = formData.getAll('courseIds').map((value) => String(value)).filter(Boolean);
-  const singleCourseId = String(formData.get('courseId') ?? '');
-  const courseIds = [...new Set([...selectedCourseIds, singleCourseId].filter(Boolean))];
-
   const parsed = createStudentSchema.safeParse({
     fullName: formData.get('fullName'),
     email: formData.get('email'),
     password: formData.get('password'),
-    courseIds
+    courseId: formData.get('courseId')
   });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'تعذر إنشاء الطالب.' };
-  }
-
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    try {
-      await createDevStudent({
-        fullName: parsed.data.fullName,
-        email: parsed.data.email,
-        courseIds: parsed.data.courseIds
-      });
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'تعذر إنشاء الطالب في وضع المعاينة.' };
-    }
-
-    revalidatePath('/admin');
-    revalidatePath('/admin/students');
-    revalidatePath('/dashboard');
-
-    return { success: 'تم إنشاء الطالب وتفعيل الحساب بنجاح (وضع معاينة محلي).' };
   }
 
   await requireRole('admin');
@@ -242,11 +166,11 @@ export async function createStudentAction(_: AdminFormState, formData: FormData)
     return { error: error instanceof Error ? error.message : 'فشل الاتصال بصلاحيات الإدارة.' };
   }
 
-  for (const courseId of parsed.data.courseIds) {
+  if (parsed.data.courseId) {
     const { supabase } = await requireRole('admin');
     const { error: enrollmentError } = await supabase.from('enrollments').insert({
       user_id: userId,
-      course_id: courseId,
+      course_id: parsed.data.courseId,
       status: 'active'
     });
 
@@ -261,68 +185,6 @@ export async function createStudentAction(_: AdminFormState, formData: FormData)
   return { success: 'تم إنشاء الطالب بنجاح.' };
 }
 
-export async function toggleStudentAccountStatusAction(formData: FormData) {
-  const parsed = toggleStudentAccountSchema.safeParse({
-    studentId: formData.get('studentId'),
-    nextStatus: formData.get('nextStatus')
-  });
-
-  if (!parsed.success) {
-    return;
-  }
-
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await setDevStudentAccountStatus(parsed.data.studentId, parsed.data.nextStatus === 'active');
-    revalidatePath('/admin/students');
-    revalidatePath('/dashboard');
-    return;
-  }
-
-  const adminClient = createSupabaseAdminClient();
-  await adminClient.auth.admin.updateUserById(parsed.data.studentId, {
-    ban_duration: parsed.data.nextStatus === 'active' ? 'none' : '87600h'
-  });
-
-  revalidatePath('/admin/students');
-}
-
-export async function toggleStudentCourseStatusAction(formData: FormData) {
-  const parsed = toggleStudentCourseSchema.safeParse({
-    studentId: formData.get('studentId'),
-    courseId: formData.get('courseId'),
-    nextStatus: formData.get('nextStatus')
-  });
-
-  if (!parsed.success) {
-    return;
-  }
-
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await setDevStudentCourseStatus({
-      studentId: parsed.data.studentId,
-      courseId: parsed.data.courseId,
-      status: parsed.data.nextStatus
-    });
-    revalidatePath('/admin/students');
-    revalidatePath(`/admin/courses/${parsed.data.courseId}`);
-    revalidatePath('/dashboard');
-    return;
-  }
-
-  const { supabase } = await requireRole('admin');
-  await supabase.from('enrollments').upsert(
-    {
-      user_id: parsed.data.studentId,
-      course_id: parsed.data.courseId,
-      status: parsed.data.nextStatus
-    },
-    { onConflict: 'user_id,course_id' }
-  );
-
-  revalidatePath('/admin/students');
-  revalidatePath(`/admin/courses/${parsed.data.courseId}`);
-}
-
 export async function toggleEnrollmentStatusAction(formData: FormData) {
   const enrollmentId = String(formData.get('enrollmentId') ?? '');
   const nextStatus = String(formData.get('nextStatus') ?? '');
@@ -331,12 +193,8 @@ export async function toggleEnrollmentStatusAction(formData: FormData) {
     return;
   }
 
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await setDevEnrollmentStatusById(enrollmentId, nextStatus);
-  } else {
-    const { supabase } = await requireRole('admin');
-    await supabase.from('enrollments').update({ status: nextStatus }).eq('id', enrollmentId);
-  }
+  const { supabase } = await requireRole('admin');
+  await supabase.from('enrollments').update({ status: nextStatus }).eq('id', enrollmentId);
 
   revalidatePath('/admin');
   revalidatePath('/admin/students');
@@ -355,27 +213,11 @@ export async function addLessonAction(_: AdminFormState, formData: FormData): Pr
     return { error: parsed.error.issues[0]?.message ?? 'تعذر إضافة الدرس.' };
   }
 
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await createDevLesson({
-      courseId: parsed.data.courseId,
-      title: parsed.data.title,
-      videoUrl: toEmbeddableVideoUrl(parsed.data.videoUrl) ?? null,
-      pdfUrl: parsed.data.pdfUrl || null,
-      orderIndex: parsed.data.orderIndex
-    });
-
-    revalidatePath('/admin/courses');
-    revalidatePath(`/admin/courses/${parsed.data.courseId}`);
-    revalidatePath(`/courses/${parsed.data.courseId}`);
-
-    return { success: 'تمت إضافة الدرس بنجاح (وضع معاينة محلي).' };
-  }
-
   const { supabase } = await requireRole('admin');
   const { error } = await supabase.from('lessons').insert({
     course_id: parsed.data.courseId,
     title: parsed.data.title,
-    video_url: toEmbeddableVideoUrl(parsed.data.videoUrl) ?? null,
+    video_url: parsed.data.videoUrl || null,
     pdf_url: parsed.data.pdfUrl || null,
     order_index: parsed.data.orderIndex
   });
@@ -519,7 +361,7 @@ export async function updateLessonAction(_: AdminFormState, formData: FormData):
     .from('lessons')
     .update({
       title: parsed.data.title,
-      video_url: toEmbeddableVideoUrl(parsed.data.videoUrl) ?? null,
+      video_url: parsed.data.videoUrl || null,
       pdf_url: parsed.data.pdfUrl || null,
       order_index: parsed.data.orderIndex
     })
@@ -650,20 +492,6 @@ export async function assignStudentToCourseAction(_: AdminFormState, formData: F
     return { error: parsed.error.issues[0]?.message ?? 'تعذر إسناد الطالب إلى الدورة.' };
   }
 
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await setDevStudentCourseStatus({
-      studentId: parsed.data.studentId,
-      courseId: parsed.data.courseId,
-      status: 'active'
-    });
-
-    revalidatePath('/admin/students');
-    revalidatePath(`/admin/courses/${parsed.data.courseId}`);
-    revalidatePath('/dashboard');
-
-    return { success: 'تم إسناد الطالب إلى الدورة بنجاح.' };
-  }
-
   const { supabase } = await requireRole('admin');
   const { error } = await supabase.from('enrollments').upsert(
     {
@@ -693,54 +521,51 @@ export async function removeEnrollmentAction(formData: FormData) {
     return;
   }
 
-  if (process.env.DEV_ADMIN_BYPASS === 'true') {
-    await removeDevEnrollmentById(enrollmentId);
-  } else {
-    const { supabase } = await requireRole('admin');
-    await supabase.from('enrollments').delete().eq('id', enrollmentId);
-  }
+  const { supabase } = await requireRole('admin');
+  await supabase.from('enrollments').delete().eq('id', enrollmentId);
 
   revalidatePath('/admin/students');
   revalidatePath(`/admin/courses/${courseId}`);
   revalidatePath('/dashboard');
 }
 
-export async function reviewEnrollmentRequestAction(formData: FormData) {
-  const parsed = reviewEnrollmentRequestSchema.safeParse({
-    requestId: formData.get('requestId'),
-    studentId: formData.get('studentId'),
-    courseId: formData.get('courseId'),
-    decision: formData.get('decision')
-  });
+export async function approveEnrollmentRequestAction(formData: FormData) {
+  const requestId = String(formData.get('requestId') ?? '');
+  const userId = String(formData.get('userId') ?? '');
+  const courseId = String(formData.get('courseId') ?? '');
 
-  if (!parsed.success) {
-    return;
-  }
+  if (!requestId || !userId || !courseId) return;
 
-  const { supabase, user } = await requireRole('admin');
-  const approved = parsed.data.decision === 'approve';
+  const { user } = await requireRole('admin');
+  const adminClient = createSupabaseAdminClient();
 
-  await supabase
+  await adminClient.from('enrollments').upsert(
+    { user_id: userId, course_id: courseId, status: 'active' },
+    { onConflict: 'user_id,course_id' }
+  );
+
+  await adminClient
     .from('enrollment_requests')
-    .update({
-      status: approved ? 'approved' : 'rejected',
-      reviewed_by: user.id,
-      reviewed_at: new Date().toISOString()
-    })
-    .eq('id', parsed.data.requestId);
+    .update({ status: 'approved', reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+    .eq('id', requestId);
 
-  if (approved) {
-    await supabase.from('enrollments').upsert(
-      {
-        user_id: parsed.data.studentId,
-        course_id: parsed.data.courseId,
-        status: 'active'
-      },
-      { onConflict: 'user_id,course_id' }
-    );
-  }
-
-  revalidatePath('/admin');
   revalidatePath('/admin/students');
-  revalidatePath('/catalog');
+  revalidatePath('/admin');
+}
+
+export async function rejectEnrollmentRequestAction(formData: FormData) {
+  const requestId = String(formData.get('requestId') ?? '');
+
+  if (!requestId) return;
+
+  const { user } = await requireRole('admin');
+  const adminClient = createSupabaseAdminClient();
+
+  await adminClient
+    .from('enrollment_requests')
+    .update({ status: 'rejected', reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+    .eq('id', requestId);
+
+  revalidatePath('/admin/students');
+  revalidatePath('/admin');
 }
