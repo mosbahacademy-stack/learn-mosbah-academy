@@ -1,0 +1,14 @@
+{
+  "name": "قالب جبهة المستقبل - متليلي",
+  "short_name": "قالب الصور",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0b3d22",
+  "theme_color": "#0a7a3b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
