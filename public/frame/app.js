@@ -6,6 +6,8 @@
   const TEXT_OFFICE = 'المكتب البلدي لمتليلي الشعانبة';
   const TEXT_LIST_LABEL = 'القائمة رقم';
   const TEXT_LIST_NUM = '3';
+  const DEFAULT_HASHTAG = '#جبهة_المستقبل #متليلي_الشعانبة #القائمة_3';
+  const FONT = "'Camel', Cairo, Tahoma, Arial, sans-serif";
   const GREEN = [10, 122, 59];
   const MAX_SIDE = 2160;
   const LOGO_KEY = 'frame-logo-v1';
@@ -14,7 +16,8 @@
   const $ = id => document.getElementById(id);
   const preview = $('preview');
   const status = $('status');
-  const opts = { autoFix: $('autoFix'), gradH: $('gradH'), gradA: $('gradA') };
+  const opts = { autoFix: $('autoFix'), gradH: $('gradH'), gradA: $('gradA'), hashtag: $('hashtag') };
+  opts.hashtag.value = DEFAULT_HASHTAG;
 
   let logoImg = null;
   let sources = [];   // loaded source images (HTMLImageElement/ImageBitmap)
@@ -120,9 +123,9 @@
 
   // ---------- Template ----------
   function fitFont(ctx, text, weight, size, maxW) {
-    ctx.font = `${weight} ${size}px Cairo, Tahoma, Arial, sans-serif`;
+    ctx.font = `${weight} ${size}px ${FONT}`;
     const w = ctx.measureText(text).width;
-    if (w > maxW) { size = Math.floor(size * maxW / w); ctx.font = `${weight} ${size}px Cairo, Tahoma, Arial, sans-serif`; }
+    if (w > maxW) { size = Math.floor(size * maxW / w); ctx.font = `${weight} ${size}px ${FONT}`; }
     return size;
   }
 
@@ -151,8 +154,8 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0, H - gH, W, gH);
 
-    const pad = 44 * s, gap = 26 * s;
-    const box = 200 * s;                // logo & badge size
+    const pad = 36 * s, gap = 20 * s;
+    const box = 150 * s;                // logo & badge size
     const baseY = H - pad;              // bottom line of content
 
     // Logo — right side (RTL start)
@@ -174,33 +177,42 @@
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 16 * s;
     ctx.fillStyle = '#ffffff';
-    roundRect(ctx, bx, by, bw, bh, 26 * s);
+    roundRect(ctx, bx, by, bw, bh, 20 * s);
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = `rgb(${R},${G},${B})`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.direction = 'rtl';
-    fitFont(ctx, TEXT_LIST_LABEL, 800, 36 * s, bw - 20 * s);
-    ctx.fillText(TEXT_LIST_LABEL, bx + bw / 2, by + 56 * s);
-    ctx.font = `900 ${150 * s}px Cairo, Tahoma, Arial, sans-serif`;
-    ctx.fillText(TEXT_LIST_NUM, bx + bw / 2, by + bh - 22 * s);
+    fitFont(ctx, TEXT_LIST_LABEL, 700, 26 * s, bw - 16 * s);
+    ctx.fillText(TEXT_LIST_LABEL, bx + bw / 2, by + 40 * s);
+    ctx.font = `700 ${105 * s}px ${FONT}`;
+    ctx.fillText(TEXT_LIST_NUM, bx + bw / 2, by + bh - 16 * s);
 
     // Texts — between logo and badge, right-aligned
     const textMax = rightEdge - (bx + bw + gap);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'right';
     ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 10 * s; ctx.shadowOffsetY = 2 * s;
-    fitFont(ctx, TEXT_PARTY, 900, 84 * s, textMax);
-    ctx.fillText(TEXT_PARTY, rightEdge, baseY - box + 92 * s);
-    fitFont(ctx, TEXT_OFFICE, 700, 46 * s, textMax);
-    ctx.fillText(TEXT_OFFICE, rightEdge, baseY - 34 * s);
+    fitFont(ctx, TEXT_PARTY, 700, 56 * s, textMax);
+    ctx.fillText(TEXT_PARTY, rightEdge, baseY - box + 66 * s);
+    fitFont(ctx, TEXT_OFFICE, 500, 32 * s, textMax);
+    ctx.fillText(TEXT_OFFICE, rightEdge, baseY - 28 * s);
+
+    // Hashtag — small line above the row, centered
+    const tag = (opts.hashtag.value || '').trim();
+    if (tag) {
+      ctx.textAlign = 'center';
+      fitFont(ctx, tag, 500, 28 * s, W - 2 * pad);
+      ctx.fillText(tag, W / 2, baseY - box - 22 * s);
+      ctx.textAlign = 'right';
+    }
     ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
 
     // Thin accent line between the two texts
     ctx.fillStyle = 'rgba(255,255,255,.85)';
-    const lineW = Math.min(textMax, 220 * s);
-    ctx.fillRect(rightEdge - lineW, baseY - box + 128 * s, lineW, 4 * s);
+    const lineW = Math.min(textMax, 160 * s);
+    ctx.fillRect(rightEdge - lineW, baseY - box + 88 * s, lineW, 3 * s);
   }
 
   function processImage(src) {
@@ -231,7 +243,7 @@
   async function handleFiles(files) {
     if (!files || !files.length) return;
     setStatus('جاري المعالجة…');
-    try { await document.fonts.load('900 40px Cairo'); await document.fonts.load('700 40px Cairo'); } catch (_) { /* fallback font */ }
+    try { await Promise.all([document.fonts.load("700 40px 'Camel'"), document.fonts.load("500 40px 'Camel'")]); } catch (_) { /* fallback font */ }
     sources = [];
     for (const f of files) {
       try { sources.push({ img: await fileToImage(f), name: f.name }); } catch (_) { /* skip unreadable */ }
@@ -273,5 +285,6 @@
   Object.values(opts).forEach(el => el.addEventListener('input', renderAll));
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  Promise.all([document.fonts.load("700 40px 'Camel'"), document.fonts.load("500 40px 'Camel'")]).catch(() => {});
   initLogo().then(renderAll);
 })();
