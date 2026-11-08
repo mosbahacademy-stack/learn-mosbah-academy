@@ -145,74 +145,91 @@
     const a = +opts.gradA.value / 100;
     const [R, G, B] = GREEN;
 
-    // Green gradient: bottom (solid) → top (transparent)
+    // Subtle eased gradient: dense only at the very bottom, fading quickly upward
     const grad = ctx.createLinearGradient(0, H, 0, H - gH);
-    grad.addColorStop(0, `rgba(${R},${G},${B},${a})`);
-    grad.addColorStop(0.35, `rgba(${R},${G},${B},${a * 0.8})`);
-    grad.addColorStop(0.7, `rgba(${R},${G},${B},${a * 0.35})`);
-    grad.addColorStop(1, `rgba(${R},${G},${B},0)`);
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10;
+      grad.addColorStop(t, `rgba(${R},${G},${B},${(a * Math.pow(1 - t, 2.2)).toFixed(3)})`);
+    }
     ctx.fillStyle = grad;
     ctx.fillRect(0, H - gH, W, gH);
 
-    const pad = 36 * s, gap = 20 * s;
-    const box = 150 * s;                // logo & badge size
-    const baseY = H - pad;              // bottom line of content
+    // Soft dark base for text legibility (very light)
+    const shade = ctx.createLinearGradient(0, H, 0, H - gH * 0.6);
+    shade.addColorStop(0, 'rgba(0,0,0,0.22)');
+    shade.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, H - gH * 0.6, W, gH * 0.6);
 
-    // Logo — right side (RTL start)
+    // Thin brand strip at the bottom edge (green + red)
+    const stripH = Math.max(3, 7 * s);
+    ctx.fillStyle = `rgb(${R},${G},${B})`;
+    ctx.fillRect(0, H - stripH, W, stripH);
+    ctx.fillStyle = '#d6262b';
+    ctx.fillRect(W * 0.72, H - stripH, W * 0.28, stripH);
+
+    const pad = 34 * s, gap = 18 * s;
+    const rowH = 104 * s;
+    const baseY = H - stripH - 30 * s;  // bottom of the content row
+    const top = baseY - rowH;
+    ctx.direction = 'rtl';
+    ctx.textBaseline = 'alphabetic';
+
+    // Logo on a frosted white card — right side
     let rightEdge = W - pad;
     if (logoImg) {
-      const lw = logoImg.width, lh = logoImg.height;
-      const k = Math.min(box / lw, box / lh);
-      const dw = lw * k, dh = lh * k;
+      const ch = rowH, inner = 12 * s;
+      const k = (ch - 2 * inner) / logoImg.height;
+      const dw = logoImg.width * k, dh = logoImg.height * k;
+      const cw = dw + 2 * inner * 1.4;
       ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14 * s;
-      ctx.drawImage(logoImg, rightEdge - dw, baseY - box + (box - dh) / 2, dw, dh);
+      ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 18 * s; ctx.shadowOffsetY = 4 * s;
+      ctx.fillStyle = 'rgba(255,255,255,0.94)';
+      roundRect(ctx, rightEdge - cw, top, cw, ch, 16 * s);
+      ctx.fill();
       ctx.restore();
-      rightEdge -= dw + gap;
+      ctx.drawImage(logoImg, rightEdge - cw + (cw - dw) / 2, top + (ch - dh) / 2, dw, dh);
+      rightEdge -= cw + gap;
     }
 
-    // List number badge — left side
-    const bw = box * 0.92, bh = box;
-    const bx = pad, by = baseY - bh;
+    // List number — compact white badge, left side
+    const bw = 92 * s, bh = rowH;
+    const bx = pad, by = top;
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 16 * s;
-    ctx.fillStyle = '#ffffff';
-    roundRect(ctx, bx, by, bw, bh, 20 * s);
+    ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 18 * s; ctx.shadowOffsetY = 4 * s;
+    ctx.fillStyle = 'rgba(255,255,255,0.94)';
+    roundRect(ctx, bx, by, bw, bh, 16 * s);
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = `rgb(${R},${G},${B})`;
+    ctx.fillRect(bx + 18 * s, by + bh - 11 * s, bw - 36 * s, 4 * s); // green accent inside badge
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.direction = 'rtl';
-    fitFont(ctx, TEXT_LIST_LABEL, 700, 26 * s, bw - 16 * s);
-    ctx.fillText(TEXT_LIST_LABEL, bx + bw / 2, by + 40 * s);
-    ctx.font = `700 ${105 * s}px ${FONT}`;
-    ctx.fillText(TEXT_LIST_NUM, bx + bw / 2, by + bh - 16 * s);
+    fitFont(ctx, TEXT_LIST_LABEL, 500, 19 * s, bw - 12 * s);
+    ctx.fillText(TEXT_LIST_LABEL, bx + bw / 2, by + 30 * s);
+    ctx.font = `700 ${66 * s}px ${FONT}`;
+    ctx.fillText(TEXT_LIST_NUM, bx + bw / 2, by + bh - 18 * s);
 
-    // Texts — between logo and badge, right-aligned
+    // Vertical hairline + texts
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    ctx.fillRect(rightEdge, top + 10 * s, 2 * s, rowH - 20 * s);
+    rightEdge -= gap;
     const textMax = rightEdge - (bx + bw + gap);
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'right';
-    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 10 * s; ctx.shadowOffsetY = 2 * s;
-    fitFont(ctx, TEXT_PARTY, 700, 56 * s, textMax);
-    ctx.fillText(TEXT_PARTY, rightEdge, baseY - box + 66 * s);
-    fitFont(ctx, TEXT_OFFICE, 500, 32 * s, textMax);
-    ctx.fillText(TEXT_OFFICE, rightEdge, baseY - 28 * s);
+    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 8 * s; ctx.shadowOffsetY = 1.5 * s;
+    fitFont(ctx, TEXT_PARTY, 700, 40 * s, textMax);
+    ctx.fillText(TEXT_PARTY, rightEdge, top + 46 * s);
+    fitFont(ctx, TEXT_OFFICE, 500, 27 * s, textMax);
+    ctx.fillText(TEXT_OFFICE, rightEdge, baseY - 14 * s);
 
-    // Hashtag — small line above the row, centered
+    // Hashtag — small, above the row, aligned right
     const tag = (opts.hashtag.value || '').trim();
     if (tag) {
-      ctx.textAlign = 'center';
-      fitFont(ctx, tag, 500, 28 * s, W - 2 * pad);
-      ctx.fillText(tag, W / 2, baseY - box - 22 * s);
-      ctx.textAlign = 'right';
+      ctx.fillStyle = 'rgba(255,255,255,.92)';
+      fitFont(ctx, tag, 500, 21 * s, W - 2 * pad);
+      ctx.fillText(tag, W - pad, top - 16 * s);
     }
     ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-
-    // Thin accent line between the two texts
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
-    const lineW = Math.min(textMax, 160 * s);
-    ctx.fillRect(rightEdge - lineW, baseY - box + 88 * s, lineW, 3 * s);
   }
 
   function processImage(src) {
